@@ -1305,8 +1305,8 @@ static int mmc_blk_part_switch_pre(struct mmc_card *card,
 	if (part_type == EXT_CSD_PART_CONFIG_ACC_RPMB)
 		mmc_retune_pause(card->host);
 #else
-        if ((part_type & mask) == mask) {
-		if (card->ext_csd.cmdq_en) {
+	if ((part_type & mask) == mask) {
+                if (card->ext_csd.cmdq_en) {
 			ret = mmc_cmdq_disable(card);
 			if (ret)
 				return ret;
@@ -1323,7 +1323,6 @@ static int mmc_blk_part_switch_post(struct mmc_card *card,
 	const unsigned int mask = EXT_CSD_PART_CONFIG_ACC_RPMB;
 	int ret = 0;
 
-<<<<<<< HEAD
 #if defined(CONFIG_MTK_EMMC_CQ_SUPPORT) || defined(CONFIG_MTK_EMMC_HW_CQ)
 	if (part_type == EXT_CSD_PART_CONFIG_ACC_RPMB)
 		mmc_retune_unpause(card->host);
@@ -1337,11 +1336,7 @@ static int mmc_blk_part_switch_post(struct mmc_card *card,
 			return ret;
 	}
 #else
-
-	if (part_type == EXT_CSD_PART_CONFIG_ACC_RPMB) {
-=======
 	if ((part_type & mask) == mask) {
->>>>>>> b8221ff394b7 (mmc: rpmb: fixes pause retune on all RPMB partitions.)
 		mmc_retune_unpause(card->host);
 		if (card->reenable_cmdq && !card->ext_csd.cmdq_en)
 			ret = mmc_cmdq_enable(card);
