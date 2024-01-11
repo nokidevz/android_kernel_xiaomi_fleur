@@ -3,8 +3,8 @@
 # Copyright (C) 2020-2021 Adithya R.
 
 SECONDS=0 # builtin bash timer
-ZIPNAME="crawford.kernel-fleur-rvendor-$(date '+%Y%m%d-%H%M').zip"
-TC_DIR="$HOME/tc/clang"
+ZIPNAME="hiiragi-kernel-fleur-rvendor-$(date '+%Y%m%d-%H%M').zip"
+TC_DIR="$HOME/tc/xrage"
 AK3_DIR="$HOME/android/AnyKernel3"
 DEFCONFIG="fleur_defconfig"
 
@@ -12,23 +12,19 @@ export PATH="$TC_DIR/bin:$PATH"
 
 if ! [ -d "$TC_DIR" ]; then
 echo "clang not found! Cloning to $TC_DIR..."
-if ! git clone --depth=1 https://github.com/kdrag0n/proton-clang -b master $TC_DIR; then
+if ! git clone --depth=1 https://github.com/xyz-prjkt/xRageTC-clang -b main $TC_DIR; then
 echo "Cloning failed! Aborting..."
 exit 1
 fi
 fi
 
 export KBUILD_BUILD_USER=nobody
-export KBUILD_BUILD_HOST=gitpod
+export KBUILD_BUILD_HOST=ubuntu
 
 if [[ $1 = "-r" || $1 = "--regen" ]]; then
 make O=out ARCH=arm64 $DEFCONFIG savedefconfig
 cp out/defconfig arch/arm64/configs/$DEFCONFIG
 exit
-fi
-
-if [[ $1 = "-c" || $1 = "--clean" ]]; then
-rm -rf out
 fi
 
 mkdir -p out
@@ -55,7 +51,7 @@ rm -rf AnyKernel3
 rm -rf out/arch/arm64/boot
 echo -e "\nCompleted in $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s) !"
 echo "Zip: $ZIPNAME"
-if ! [[ $HOSTNAME = "gitpod" && $USER = "nobody" ]]; then
+if ! [[ $HOSTNAME = "ubuntu" && $USER = "nobody" ]]; then
 curl --upload-file $ZIPNAME http://oshi.at/$ZIPNAME; echo
 fi
 else
