@@ -92,7 +92,11 @@ TRACE_EVENT(spmi_read_end,
 		__field		( u16,        addr      )
 		__field		( int,        ret       )
 		__field		( u8,         len       )
+<<<<<<< HEAD
 		__dynamic_array(u8,   buf,  len)
+=======
+		__dynamic_array	( u8,   buf,  len       )
+>>>>>>> 4e6ed17d47e7c0d83a7d6a53752c3cde96e1f94f
 	),
 
 	TP_fast_assign(
