@@ -65,8 +65,8 @@
 #include <linux/of_address.h>
 #include <linux/reboot.h>
 
-#include <mt-plat/charger_type.h>
-#include <mt-plat/mtk_battery.h>
+#include <mt-plat/v1/charger_type.h>
+#include <mt-plat/v1/mtk_battery.h>
 #include <mt-plat/mtk_boot.h>
 #include <pmic.h>
 #include <mtk_gauge_time_service.h>
@@ -250,8 +250,8 @@ void _wake_up_charger(struct charger_manager *info)
 		return;
 
 	spin_lock_irqsave(&info->slock, flags);
-	if (!info->charger_wakelock.active)
-		__pm_stay_awake(&info->charger_wakelock);
+	if (!info->charger_wakelock->active)
+		__pm_stay_awake(info->charger_wakelock);
 	spin_unlock_irqrestore(&info->slock, flags);
 	info->charger_thread_timeout = true;
 	wake_up(&info->wait_que);
@@ -370,6 +370,38 @@ int charger_manager_enable_otg(struct charger_consumer *consumer,
 	if (ret)
 		pr_info("%s: set otg_enable failed, ret:%d\n", __func__, ret);
 
+	return ret;
+}
+
+int charger_manager_force_disable_power_path(struct charger_consumer *consumer,
+	int idx, bool disable)
+{
+	struct charger_manager *info = consumer->cm;
+	struct charger_device *chg_dev = NULL;
+	int ret = 0;
+	if (info == NULL)
+		return -ENODEV;
+	switch (idx) {
+	case MAIN_CHARGER:
+		chg_dev = info->chg1_dev;
+		break;
+	case SLAVE_CHARGER:
+		chg_dev = info->chg2_dev;
+		break;
+	default:
+		ret = -EINVAL;
+	}
+
+	mutex_lock(&info->pp_lock[idx]);
+
+	if (disable == info->force_disable_pp[idx])
+		goto out;
+
+	info->force_disable_pp[idx] = disable;
+	ret = charger_dev_enable_powerpath(chg_dev,
+		info->force_disable_pp[idx] ? false : info->enable_pp[idx]);
+out:
+	mutex_unlock(&info->pp_lock[idx]);
 	return ret;
 }
 
@@ -1289,7 +1321,7 @@ void charger_manager_set_prop_system_temp_level(int temp_level)
 	case POWER_SUPPLY_TYPE_USB_HVDCP:
 		thermal_icl_ua = pinfo->thermal_mitigation_qc2[pinfo->system_temp_level];
 		break;
-	case POWER_SUPPLY_TYPE_USB_HVDCP_3_PLUS:
+	case POWER_SUPPLY_TYPE_USB_HVDCP_3P5:
 		thermal_fcc_ua =
 			pinfo->thermal_mitigation_qc3p5[pinfo->system_temp_level];
 		break;
@@ -1733,10 +1765,10 @@ void do_sw_jeita_state_machine(struct charger_manager *info)
 			|| sw_jeita->sm == TEMP_BELOW_T0
 			|| sw_jeita->sm == TEMP_TN1_TO_T0)
 			&& (info->battery_temp
-			<= info->data.temp_t1_thres_plus_x_degree)) {
+			<= info->data.temp_t1_thres)) {
 			if (sw_jeita->sm == TEMP_T0_TO_T1) {
 				chr_err("[SW_JEITA] Battery Temperature between %d and %d !!\n",
-					info->data.temp_t1_thres_plus_x_degree,
+					info->data.temp_t1_thres,
 					info->data.temp_t1p5_thres);
 			}
 			if (sw_jeita->sm == TEMP_BELOW_T0) {
@@ -1821,7 +1853,7 @@ void do_sw_jeita_state_machine(struct charger_manager *info)
 		}
 		fastcharge_mode = pval.intval;
 
-		if (pd_authentication || charger_type == POWER_SUPPLY_TYPE_USB_HVDCP_3_PLUS) {
+		if (pd_authentication || charger_type == POWER_SUPPLY_TYPE_USB_HVDCP_3P5) {
 			pr_info("ffc pd_authentication = %d, charger_type = %d\n", pd_authentication, charger_type);
 			if ( sw_jeita->sm != TEMP_T2_TO_T3 && fastcharge_mode) {
 				/* battery_temp > 48 || battery_temp <= 15 disable ffc*/
@@ -2449,8 +2481,28 @@ static bool mtk_is_charger_on(struct charger_manager *info)
 	return true;
 }
 
+extern int get_quick_charge_type(struct mt_charger *mtk_chg);
 static void charger_update_data(struct charger_manager *info)
 {
+	struct mt_charger *mtk_chg = NULL;
+	struct power_supply *charger_psy = power_supply_get_by_name("charger");
+	static int last_quick_type = 0;
+	int quick_charge_type;
+
+	if (!charger_psy || !info->usb_psy) {
+		pr_err("%s: usb psy or charger psy not found\n", __func__);
+		return;
+	}
+
+	mtk_chg = power_supply_get_drvdata(charger_psy);
+	quick_charge_type = get_quick_charge_type(mtk_chg);
+
+	if (((last_quick_type == 1) && (quick_charge_type == 0)) || \
+		((last_quick_type == 0) && (quick_charge_type == 1))) {
+		power_supply_changed(info->usb_psy);
+	}
+	last_quick_type = quick_charge_type;
+
 	info->battery_temp = battery_get_bat_temperature();
 }
 
@@ -2861,8 +2913,8 @@ static enum alarmtimer_restart
 	} else {
 		chr_err("%s: alarm timer timeout\n", __func__);
 		spin_lock_irqsave(&info->slock, flags);
-		if (!info->charger_wakelock.active)
-			__pm_stay_awake(&info->charger_wakelock);
+		if (!info->charger_wakelock->active)
+			__pm_stay_awake(info->charger_wakelock);
 		spin_unlock_irqrestore(&info->slock, flags);
 	}
 
@@ -2955,8 +3007,8 @@ static int charger_routine_thread(void *arg)
 
 		mutex_lock(&info->charger_lock);
 		spin_lock_irqsave(&info->slock, flags);
-		if (!info->charger_wakelock.active)
-			__pm_stay_awake(&info->charger_wakelock);
+		if (!info->charger_wakelock->active)
+			__pm_stay_awake(info->charger_wakelock);
 		spin_unlock_irqrestore(&info->slock, flags);
 
 		info->charger_thread_timeout = false;
@@ -3004,7 +3056,7 @@ static int charger_routine_thread(void *arg)
 			chr_debug("disable charging\n");
 
 		spin_lock_irqsave(&info->slock, flags);
-		__pm_relax(&info->charger_wakelock);
+		__pm_relax(info->charger_wakelock);
 		spin_unlock_irqrestore(&info->slock, flags);
 		chr_debug("%s end , %d\n",
 			__func__, info->charger_thread_timeout);
@@ -4981,11 +5033,11 @@ static void mtk_charger_type_recheck_work(struct work_struct *work)
 
 	if ((info->real_charger_type == POWER_SUPPLY_TYPE_USB_HVDCP) ||
 		(info->real_charger_type == POWER_SUPPLY_TYPE_USB_HVDCP_3) ||
-		(info->real_charger_type == POWER_SUPPLY_TYPE_USB_HVDCP_3_PLUS))
+		(info->real_charger_type == POWER_SUPPLY_TYPE_USB_HVDCP_3P5))
 		power_supply_changed(pinfo->usb_psy);
 
 	if (info->real_charger_type == POWER_SUPPLY_TYPE_USB_HVDCP_3 ||
-			info->real_charger_type == POWER_SUPPLY_TYPE_USB_HVDCP_3_PLUS ||
+			info->real_charger_type == POWER_SUPPLY_TYPE_USB_HVDCP_3P5 ||
 			info->real_charger_type == POWER_SUPPLY_TYPE_USB_CDP ||
 			info->real_charger_type == POWER_SUPPLY_TYPE_USB_PD ||
 			(info->check_count >= TYPE_RECHECK_COUNT) ||
@@ -5126,7 +5178,8 @@ static int mtk_charger_probe(struct platform_device *pdev)
 	mutex_init(&info->charger_pd_lock);
 	mutex_init(&info->cable_out_lock);
 	atomic_set(&info->enable_kpoc_shdn, 1);
-	wakeup_source_init(&info->charger_wakelock, "charger suspend wakelock");
+//	wakeup_source_init(&info->charger_wakelock, "charger suspend wakelock");
+	info->charger_wakelock = wakeup_source_register(NULL,"charger suspend wakelock");
 	spin_lock_init(&info->slock);
 
 	/* init thread */
