@@ -129,3 +129,5 @@ kernel/configs/android-*.cfg
 # Don't track this files
 out/
 *.zip
+toolchains
+build.sh
